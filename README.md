@@ -20,14 +20,16 @@ else `~/.local/share/kanban/board.tsv` — plain tab-separated text, saved after
 
 ## Windows
 The board saves to `$HOME/.local/share/kanban/board.tsv`, and Windows does not define
-`HOME`, so it must be exported from `USERPROFILE`. These instructions assume the repo
-is at `%USERPROFILE%\Downloads\kanban`.
+`HOME`, so it must be exported from `USERPROFILE`. Open a terminal **inside the repo
+folder** first — its name and location don't matter (`git clone` creates `todo-tui`,
+GitHub's "Download ZIP" creates `todo-tui-main`, any other name works the same).
 
 Build once:
 
 ```powershell
 $env:HOME = $env:USERPROFILE      # needed every session — add to your $PROFILE to persist
-zig build run
+zig build -Doptimize=ReleaseSafe  # builds zig-out\bin\kanban.exe without launching it
+zig build run                     # or just try it out live
 ```
 
 Install it like a real terminal command (type `kanban` from any folder, just like `cd`
@@ -37,7 +39,7 @@ or `ls`): copy the exe out of the repo and drop a launcher into
 ```powershell
 $dest = "$env:LOCALAPPDATA\Programs\kanban"
 New-Item -ItemType Directory -Force $dest | Out-Null
-Copy-Item "$env:USERPROFILE\Downloads\kanban\zig-out\bin\kanban.exe" $dest -Force
+Copy-Item "zig-out\bin\kanban.exe" $dest -Force
 
 @'
 @echo off
@@ -46,10 +48,11 @@ set "HOME=%USERPROFILE%"
 '@ | Set-Content -Encoding ASCII "$env:LOCALAPPDATA\Microsoft\WindowsApps\kanban.cmd"
 ```
 
-Open a new terminal and `kanban` works from anywhere. The wrapper sets `HOME` itself,
-so it also works when double-clicked from Explorer. To keep the board somewhere else,
-add `set "KANBAN_FILE=D:\board.tsv"` to the launcher; to uninstall, delete
-`kanban.cmd` and the `%LOCALAPPDATA%\Programs\kanban` folder.
+Open a new terminal and `kanban` works from anywhere — from `todo-tui`, `todo-tui-main`
+or any other folder name, since the launcher points at the installed copy, not the repo.
+The wrapper sets `HOME` itself, so it also works when double-clicked from Explorer. To
+keep the board somewhere else, add `set "KANBAN_FILE=D:\board.tsv"` to the launcher; to
+uninstall, delete `kanban.cmd` and the `%LOCALAPPDATA%\Programs\kanban` folder.
 
 ## Keys
 
