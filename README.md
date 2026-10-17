@@ -10,13 +10,46 @@ coloured outlines for the four priority squares.
 ## Build & run
 
 ```sh
-zig build run              # needs Zig 0.16.0
+zig build run              # needs Zig 0.17.0
 zig build -Doptimize=ReleaseSafe && ./zig-out/bin/kanban
 zig build test             # model + date parsing tests
 ```
 
 Data lives in `$KANBAN_FILE`, else `$XDG_DATA_HOME/kanban/board.tsv`,
 else `~/.local/share/kanban/board.tsv` — plain tab-separated text, saved after every change.
+
+## Windows
+The board saves to `$HOME/.local/share/kanban/board.tsv`, and Windows does not define
+`HOME`, so it must be exported from `USERPROFILE`. These instructions assume the repo
+is at `%USERPROFILE%\Downloads\kanban`.
+
+Build once:
+
+```powershell
+$env:HOME = $env:USERPROFILE      # needed every session — add to your $PROFILE to persist
+zig build run
+```
+
+Install it like a real terminal command (type `kanban` from any folder, just like `cd`
+or `ls`): copy the exe out of the repo and drop a launcher into
+`%LOCALAPPDATA%\Microsoft\WindowsApps`, which is already on your `PATH`.
+
+```powershell
+$dest = "$env:LOCALAPPDATA\Programs\kanban"
+New-Item -ItemType Directory -Force $dest | Out-Null
+Copy-Item "$env:USERPROFILE\Downloads\kanban\zig-out\bin\kanban.exe" $dest -Force
+
+@'
+@echo off
+set "HOME=%USERPROFILE%"
+"%LOCALAPPDATA%\Programs\kanban\kanban.exe" %*
+'@ | Set-Content -Encoding ASCII "$env:LOCALAPPDATA\Microsoft\WindowsApps\kanban.cmd"
+```
+
+Open a new terminal and `kanban` works from anywhere. The wrapper sets `HOME` itself,
+so it also works when double-clicked from Explorer. To keep the board somewhere else,
+add `set "KANBAN_FILE=D:\board.tsv"` to the launcher; to uninstall, delete
+`kanban.cmd` and the `%LOCALAPPDATA%\Programs\kanban` folder.
 
 ## Keys
 
