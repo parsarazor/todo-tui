@@ -1,0 +1,13 @@
+.{
+    .name = .kanban,
+    .version = "0.1.0",
+    .fingerprint = 0x31e58900aeaa2764,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis#d4c3b3666e0c090e2b5092ca09893c6db15e0b79",
+            .hash = "vaxis-0.6.0-BWNV_O8ODQBFLRjA4D0q75pHPh63iPu_v0yhpCwsAMaM",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}
