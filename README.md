@@ -20,8 +20,8 @@ else `~/.local/share/kanban/board.tsv` — plain tab-separated text, saved after
 
 ## Windows
 The board saves to `$HOME/.local/share/kanban/board.tsv`, and Windows does not define
-`HOME`, so it must be exported from `USERPROFILE`. Open a terminal **inside the repo
-folder** first — its name and location don't matter (`git clone` creates `todo-tui`,
+`HOME`, so it must be exported from `USERPROFILE`. Open a terminal **at the repo root**
+first — the folder's name and location don't matter (`git clone` creates `todo-tui`,
 GitHub's "Download ZIP" creates `todo-tui-main`, any other name works the same).
 
 Build once:
