@@ -1,6 +1,6 @@
 # kanban — a terminal Kanban with a priority matrix
 
-Zig 0.16 + [libvaxis](https://github.com/rockorager/libvaxis). Black canvas, bone-white text,
+Zig 0.17 + [libvaxis](https://github.com/rockorager/libvaxis). Black canvas, bone-white text,
 coloured outlines for the four priority squares.
 
 
