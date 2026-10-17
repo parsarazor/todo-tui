@@ -21,8 +21,8 @@ else `~/.local/share/kanban/board.tsv` — plain tab-separated text, saved after
 ## Windows
 The board saves to `$HOME/.local/share/kanban/board.tsv`, and Windows does not define
 `HOME`, so it must be exported from `USERPROFILE`. Open a terminal **at the repo root**
-first — the folder's name and location don't matter (`git clone` creates `todo-tui`,
-GitHub's "Download ZIP" creates `todo-tui-main`, any other name works the same).
+first — the folder's name and location don't matter; `git clone` and GitHub's
+"Download ZIP" each put it in a folder of their own choosing, and any name works the same.
 
 Build once:
 
@@ -48,11 +48,12 @@ set "HOME=%USERPROFILE%"
 '@ | Set-Content -Encoding ASCII "$env:LOCALAPPDATA\Microsoft\WindowsApps\kanban.cmd"
 ```
 
-Open a new terminal and `kanban` works from anywhere — from `todo-tui`, `todo-tui-main`
-or any other folder name, since the launcher points at the installed copy, not the repo.
-The wrapper sets `HOME` itself, so it also works when double-clicked from Explorer. To
-keep the board somewhere else, add `set "KANBAN_FILE=D:\board.tsv"` to the launcher; to
-uninstall, delete `kanban.cmd` and the `%LOCALAPPDATA%\Programs\kanban` folder.
+Open a new terminal and `kanban` works from anywhere, whatever the repo folder is
+called and wherever it lives, since the launcher points at the installed copy, not
+the repo. The wrapper sets `HOME` itself, so it also works when double-clicked from
+Explorer. To keep the board somewhere else, add `set "KANBAN_FILE=C:\path\to\board.tsv"`
+to the launcher; to uninstall, delete `kanban.cmd` and the
+`%LOCALAPPDATA%\Programs\kanban` folder.
 
 ## Keys
 
