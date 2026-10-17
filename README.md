@@ -1,11 +1,22 @@
-# kanban — a terminal Kanban with a priority matrix
+# kanban — a terminal todo list with a priority matrix
 
-Zig 0.17 + [libvaxis](https://github.com/rockorager/libvaxis). Black canvas, bone-white text,
-coloured outlines for the four priority squares.
+Zig 0.17 + [libvaxis](https://github.com/rockorager/libvaxis). Keyboard-first, mouse-friendly,
+one static binary, all data in plain text. Black canvas, bone-white text, coloured outlines
+for the four priority squares.
 
 
 ![Kanban board screenshot](assets/todoapp.png)
 
+
+## Features
+
+- kanban columns crossed with a four-square priority matrix — every task sits in a priority × column cell
+- keyboard-first: vim keys, `⇧+arrows` / `H J K L` to move cards; mouse drag-and-drop, wheel scroll, double-click edit
+- deadlines that parse like a human types them: `2026-10-05`, `10-05`, `+3`, `+2w`, `today`, `tomorrow`
+- work log + statistics: tracked sessions, completions, weekly comparison, streaks, forecasts, backlog velocity
+- brainstorm popup: titled free-text pages for ideas
+- plaintext everywhere: one greppable TSV for the board, atomic save after every change
+- pure, unit-tested core (model, dates, stats, editor)
 
 ## Build & run
 
@@ -76,18 +87,27 @@ Deadline field accepts `2026-10-05`, `10-05` (next occurrence), `+3` (days), `+2
 ## Layout of the code
 
 ```
-src/main.zig    event loop only
-src/state.zig   App state + every operation (select, move, edit, delete, form submit)
-src/input.zig   key / mouse events  →  state operations
-src/ui.zig      layout, drawing, hit-map for the mouse
-src/form.zig    the new/edit modal
-src/draw.zig    boxes, clipped text
-src/theme.zig   every colour
-src/model.zig   Task / Board / Zone  (pure, unit-tested)
-src/dates.zig   civil-date maths + deadline parsing (pure, unit-tested)
-src/storage.zig load / atomic save
+src/main.zig      event loop only
+src/state.zig     App state + every operation (select, move, edit, delete, form submit)
+src/input.zig     key / mouse events  →  state operations
+src/ui.zig        layout, drawing, hit-map for the mouse
+src/form.zig      the new/edit modal
+src/draw.zig      boxes, clipped text
+src/theme.zig     every colour
+src/model.zig     Task / Board / Zone  (pure, unit-tested)
+src/dates.zig     civil-date maths + deadline parsing (pure, unit-tested)
+src/storage.zig   load / atomic save
+src/worklog.zig   append-only log of work sessions & completions (pure)
+src/stats.zig     weekly stats, streaks, forecasts over the log (pure, unit-tested)
+src/settings.zig  stat parameters, saved as key=value next to the board
+src/brainstorm.zig  brainstorm popup state machine (topics + free-text pages)
+src/brain_view.zig  draws the brainstorm popup
+src/notes.zig       brainstorm topic data + on-disk format (pure)
+src/editor.zig      UTF-8 multi-line text editor core (pure)
+src/logbook.zig     Log popup state and keys
+src/log_view.zig    draws the Log popup (week view + insights)
 ```
 
-### Why I Made a tui Kanban for Zig
+### Why I made a TUI kanban in Zig
 
 I made this Kanban for Zig because I found it to be more efficient compared to Go. Zig's performance and control over memory management made it a better fit for this project. The ability to write low-level code with high-level abstractions was particularly appealing, allowing me to create a tool that is both powerful and easy to use.
