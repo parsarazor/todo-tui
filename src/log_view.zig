@@ -10,147 +10,38 @@ const model = @import("model.zig");
 const stats = @import("stats.zig");
 const worklog = @import("worklog.zig");
 const lbk = @import("logbook.zig");
+const vk = @import("viewkit.zig");
+const dashboard = @import("dashboard.zig");
 
 const Rect = draw.Rect;
 const Ledger = stats.Ledger;
 const Allocator = std.mem.Allocator;
 const bg = theme.glass;
 
-pub const Data = struct {
-    entries: []const worklog.Entry,
-    board: *const model.Board,
-    params: stats.Params,
-    now: i64,
-    tz: dates.Tz,
-};
+pub const Data = dashboard.Data;
 
-// ---- tiny rich-text lines ------------------------------------------------------------------
+// ---- shared helpers live in viewkit.zig -------------------------------------------------------
 
-const Kind = enum { head, label, value, good, bad, warn, dim, plain };
-const Seg = struct { text: []const u8, kind: Kind = .plain, color: ?theme.Color = null };
-const Line = []const Seg;
-const Lines = std.ArrayList(Line);
+const Kind = vk.Kind;
+const Seg = vk.Seg;
+const Line = vk.Line;
+const Lines = vk.Lines;
+const f = vk.f;
+const add = vk.add;
+const blank = vk.blank;
+const drawLine = vk.drawLine;
+const drawLines = vk.drawLines;
+const hm = vk.hm;
+const hmHours = vk.hmHours;
+const clip = vk.clip;
+const bar = vk.bar;
+const probKind = vk.probKind;
+const percentText = vk.percentText;
+const probText = vk.probText;
+const deltaSeg = vk.deltaSeg;
+const hints = vk.hints;
+const clock = vk.clock;
 
-fn segStyle(s: Seg, row_bg: theme.Color) theme.Style {
-    const fg: theme.Color = s.color orelse switch (s.kind) {
-        .head, .value, .plain => theme.bone,
-        .label => theme.bone_dim,
-        .good => theme.ok,
-        .bad => theme.p1,
-        .warn => theme.p2,
-        .dim => theme.bone_faint,
-    };
-    return .{ .fg = fg, .bg = row_bg, .bold = s.kind == .head };
-}
-
-fn f(a: Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
-    return std.fmt.allocPrint(a, fmt, args) catch "?";
-}
-
-fn add(a: Allocator, lines: *Lines, segs: []const Seg) void {
-    const owned = a.dupe(Seg, segs) catch return;
-    lines.append(a, owned) catch {};
-}
-
-fn blank(a: Allocator, lines: *Lines) void {
-    add(a, lines, &.{});
-}
-
-fn drawLine(win: vaxis.Window, x: u16, y: u16, w: u16, line: Line, row_bg: theme.Color) void {
-    var cx: u16 = x;
-    const end = x + w;
-    for (line) |s| {
-        if (cx >= end) break;
-        cx += draw.text(win, cx, y, end - cx, s.text, segStyle(s, row_bg));
-    }
-}
-
-fn drawLines(win: vaxis.Window, x: u16, y: u16, w: u16, h: u16, lines: []const Line, scroll: usize) void {
-    var i: usize = 0;
-    while (i < h and scroll + i < lines.len) : (i += 1) drawLine(win, x, y + @as(u16, @intCast(i)), w, lines[scroll + i], bg);
-}
-
-// ---- formatting helpers -----------------------------------------------------------------------
-
-/// "3h 07m" / "45m" / "0m", rounded to the nearest minute.
-fn hm(a: Allocator, secs: i64) []const u8 {
-    const m: u64 = @intCast(@divFloor(@max(secs, 0) + 30, 60));
-    if (m == 0 and secs > 0) return "<1m"; // some work happened, just not a whole minute
-    if (m < 60) return f(a, "{d}m", .{m});
-    return f(a, "{d}h {d:0>2}m", .{ m / 60, m % 60 });
-}
-
-fn hmHours(a: Allocator, hours: f64) []const u8 {
-    return hm(a, @intFromFloat(@round(@max(hours, 0) * 3600)));
-}
-
-fn clip(a: Allocator, s: []const u8, max: usize) []const u8 {
-    var n: usize = 0;
-    var i: usize = 0;
-    while (i < s.len) {
-        if (n == max) return f(a, "{s}…", .{s[0..i]});
-        i += std.unicode.utf8ByteSequenceLength(s[i]) catch 1;
-        n += 1;
-    }
-    return s;
-}
-
-const partial_blocks = [_][]const u8{ "", "▏", "▎", "▍", "▌", "▋", "▊", "▉" };
-
-fn bar(a: Allocator, frac: f64, cells: usize) []const u8 {
-    const eighths: usize = @intFromFloat(@round(std.math.clamp(frac, 0, 1) * @as(f64, @floatFromInt(cells * 8))));
-    var buf: std.ArrayList(u8) = .empty;
-    for (0..eighths / 8) |_| buf.appendSlice(a, "█") catch {};
-    buf.appendSlice(a, partial_blocks[eighths % 8]) catch {};
-    return buf.items;
-}
-
-fn probKind(p: f64) Kind {
-    return if (p >= 0.66) .good else if (p >= 0.33) .warn else .bad;
-}
-
-fn percentText(a: Allocator, p: f64) []const u8 {
-    return f(a, "{d}%", .{@as(u32, @intFromFloat(@round(std.math.clamp(p, 0, 1) * 100)))});
-}
-
-/// A probability estimated from data: never claim certainty either way.
-fn probText(a: Allocator, p: f64) []const u8 {
-    if (p < 0.005) return "<1%";
-    if (p > 0.995) return ">99%";
-    return percentText(a, p);
-}
-
-/// ▲ +23% (green) / ▼ -12% (red). More is better for everything we compare.
-fn deltaSeg(a: Allocator, d: stats.Delta) Seg {
-    if (d.pct()) |p| {
-        const mag = @abs(p);
-        if (mag < 0.05) return .{ .text = "= 0%", .kind = .dim };
-        const num = if (mag >= 1000) ">999" else if (mag >= 10) f(a, "{d:.0}", .{mag}) else f(a, "{d:.1}", .{mag});
-        return if (p > 0)
-            .{ .text = f(a, "▲ +{s}%", .{num}), .kind = .good }
-        else
-            .{ .text = f(a, "▼ -{s}%", .{num}), .kind = .bad };
-    }
-    if (d.cur > 0) return .{ .text = "▲ new", .kind = .good }; // nothing to compare with
-    return .{ .text = "–", .kind = .dim };
-}
-
-fn hints(win: vaxis.Window, x: u16, y: u16, w: u16, items: []const [2][]const u8) void {
-    var cx = x;
-    for (items) |h| {
-        const kw = win.gwidth(h[0]);
-        const lw = win.gwidth(h[1]);
-        if (cx + kw + 1 + lw > x + w) break;
-        _ = draw.text(win, cx, y, kw, h[0], .{ .fg = theme.bone, .bg = bg, .bold = true });
-        _ = draw.text(win, cx + kw + 1, y, lw, h[1], .{ .fg = theme.bone_faint, .bg = bg });
-        cx += kw + 1 + lw + 3;
-    }
-}
-
-fn clock(a: Allocator, tz: dates.Tz, t: i64) []const u8 {
-    const mins: u64 = @intCast(@divFloor(@mod(t + tz.offset(t), 86400), 60));
-    return f(a, "{d:0>2}:{d:0>2}", .{ mins / 60, mins % 60 });
-}
 
 // ---- entry point ---------------------------------------------------------------------------------
 
@@ -174,13 +65,13 @@ pub fn render(lb: *lbk.Logbook, win: vaxis.Window, fa: Allocator, data: Data) vo
     lb.today_weekday = dates.weekdayIndex(l.today);
 
     // title bar and tabs
-    _ = draw.text(win, r.x + 2, r.y, 8, " LOG ", .{ .fg = theme.bone, .bg = bg, .bold = true });
+    _ = draw.text(win, r.x + 2, r.y, 14, " DASHBOARD ", .{ .fg = theme.bone, .bg = bg, .bold = true });
     if (l.hasData()) {
         var b: [16]u8 = undefined;
         const since = f(fa, " since {s} ", .{dates.formatDayMonth(&b, l.first_day)});
         _ = draw.textRight(win, r.x + r.w - 2, r.y, since, .{ .fg = theme.bone_dim, .bg = bg });
     }
-    const tabs = [_][]const u8{ "Week", "Insights" };
+    const tabs = [_][]const u8{ "Dashboard", "Trends", "Board", "Week", "Insights" };
     var tx = r.x + 3;
     for (tabs, 0..) |name, i| {
         const label = f(fa, " {s} ", .{name});
@@ -193,7 +84,19 @@ pub fn render(lb: *lbk.Logbook, win: vaxis.Window, fa: Allocator, data: Data) vo
         tx += w + 1;
     }
 
+    const area: Rect = .{ .x = r.x + 3, .y = r.y + 3, .w = r.w - 6, .h = (r.y + r.h - 3) -| (r.y + 3) };
     switch (lb.tab) {
+        .dashboard, .trends, .board => {
+            dashboard.render(@enumFromInt(@intFromEnum(lb.tab)), win, fa, &l, data, area);
+            hints(win, area.x, r.y + r.h - 2, area.w, &.{
+                .{ "g/G", "goal" },
+                .{ "w/W", "window" },
+                .{ "m/M", "active day" },
+                .{ "1-5", "tabs" },
+                .{ "tab", "next" },
+                .{ "esc", "close" },
+            });
+        },
         .week => weekTab(lb, win, fa, r, &l, data),
         .insights => insightsTab(lb, win, fa, r, &l, data),
     }
@@ -343,7 +246,7 @@ fn weekTab(lb: *lbk.Logbook, win: vaxis.Window, fa: Allocator, r: Rect, l: *cons
         .{ "↑↓", "day" },
         .{ "t", "this week" },
         .{ "PgUp/PgDn", "details" },
-        .{ "tab", "insights" },
+        .{ "tab", "next tab" },
         .{ "esc", "close" },
     });
 }
@@ -423,7 +326,7 @@ fn insightsTab(lb: *lbk.Logbook, win: vaxis.Window, fa: Allocator, r: Rect, l: *
         .{ "m/M", "active day" },
         .{ "a/A", "smoothing" },
         .{ "w/W", "window" },
-        .{ "tab", "week" },
+        .{ "tab", "next tab" },
         .{ "esc", "close" },
     });
 }

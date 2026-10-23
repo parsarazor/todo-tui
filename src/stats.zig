@@ -10,6 +10,7 @@
 const std = @import("std");
 const dates = @import("dates.zig");
 const worklog = @import("worklog.zig");
+const model = @import("model.zig");
 
 pub const Tz = dates.Tz;
 pub const Session = worklog.Session;
@@ -662,6 +663,132 @@ pub fn hourHistogram(l: *const Ledger, weeks_back: u8) [24]f64 {
     return out;
 }
 
+// ---- dashboard series -------------------------------------------------------------------------------
+
+/// The last `n` weeks ending with the one in progress, oldest first. Weeks from
+/// before the log began are simply all zeros, so charts keep a fixed width.
+pub fn recentWeeks(a: std.mem.Allocator, l: *const Ledger, n: usize, active_secs: i64) ![]Week {
+    const out = try a.alloc(Week, n);
+    const cur = dates.weekStart(l.today);
+    for (out, 0..) |*w, i| {
+        const back: i32 = @intCast(n - 1 - i);
+        w.* = week(l, cur - back * 7, active_secs);
+    }
+    return out;
+}
+
+/// Seconds worked per priority (index 0 = P1 ... 3 = P4) inside [t0, t1).
+pub fn timeByPriority(l: *const Ledger, t0: i64, t1: i64) [4]i64 {
+    var out: [4]i64 = @splat(0);
+    for (l.sessions) |s| {
+        const lo = @max(s.start, t0);
+        const hi = @min(s.end, t1);
+        if (hi > lo) out[std.math.clamp(s.priority, 1, 4) - 1] += hi - lo;
+    }
+    return out;
+}
+
+/// Completions per priority (index 0 = P1 ... 3 = P4) inside [t0, t1).
+pub fn doneByPriority(l: *const Ledger, t0: i64, t1: i64) [4]u32 {
+    var out: [4]u32 = @splat(0);
+    for (l.completions) |c| {
+        if (c.at >= t0 and c.at < t1) out[std.math.clamp(c.priority, 1, 4) - 1] += 1;
+    }
+    return out;
+}
+
+pub const dur_buckets = 6;
+/// Upper edges of the duration buckets: <15m, 15-30m, 30m-1h, 1-2h, 2-4h, 4h+
+pub const dur_edges = [dur_buckets - 1]i64{ 15 * 60, 30 * 60, 60 * 60, 2 * 3600, 4 * 3600 };
+
+/// How many finished tasks fall into each duration bucket (tasks with no tracked time are skipped).
+pub fn durationHistogram(l: *const Ledger) [dur_buckets]u32 {
+    var out: [dur_buckets]u32 = @splat(0);
+    for (l.completions) |c| {
+        if (c.took <= 0) continue;
+        var i: usize = 0;
+        while (i < dur_edges.len and c.took >= dur_edges[i]) i += 1;
+        out[i] += 1;
+    }
+    return out;
+}
+
+/// Running total of finished tasks at the end of each given week (everything
+/// finished before the first week is included, so the line starts at its true level).
+pub fn cumulativeDone(a: std.mem.Allocator, l: *const Ledger, weeks: []const Week) ![]f64 {
+    const out = try a.alloc(f64, weeks.len);
+    if (weeks.len == 0) return out;
+    var total: u32 = l.doneBetween(std.math.minInt(i64), l.tz.dayStart(weeks[0].start_day));
+    for (weeks, 0..) |w, i| {
+        total += w.done_total;
+        out[i] = @floatFromInt(total);
+    }
+    return out;
+}
+
+/// Where every task on the board stands right now, split by priority, plus how
+/// the open ones sit against their deadlines.
+pub const BoardSnap = struct {
+    backlog: [4]u32 = @splat(0),
+    doing: [4]u32 = @splat(0),
+    done: [4]u32 = @splat(0),
+    /// open tasks (backlog + in progress) by deadline
+    overdue: u32 = 0,
+    /// due today or within two days (same cut-off the board uses for its warning colour)
+    due_soon: u32 = 0,
+    /// due in 3 to 7 days
+    due_week: u32 = 0,
+    due_later: u32 = 0,
+    no_deadline: u32 = 0,
+
+    fn sum(xs: [4]u32) u32 {
+        var t: u32 = 0;
+        for (xs) |x| t += x;
+        return t;
+    }
+    pub fn nBacklog(self: BoardSnap) u32 {
+        return sum(self.backlog);
+    }
+    pub fn nDoing(self: BoardSnap) u32 {
+        return sum(self.doing);
+    }
+    pub fn nDone(self: BoardSnap) u32 {
+        return sum(self.done);
+    }
+    pub fn nOpen(self: BoardSnap) u32 {
+        return self.nBacklog() + self.nDoing();
+    }
+    pub fn nTotal(self: BoardSnap) u32 {
+        return self.nOpen() + self.nDone();
+    }
+    /// finished share of all tasks on the board; null on an empty board
+    pub fn completion(self: BoardSnap) ?f64 {
+        const t = self.nTotal();
+        if (t == 0) return null;
+        return @as(f64, @floatFromInt(self.nDone())) / @as(f64, @floatFromInt(t));
+    }
+};
+
+pub fn boardSnap(board: *const model.Board, today: i32) BoardSnap {
+    var s: BoardSnap = .{};
+    for (board.tasks.items) |t| {
+        const pi: usize = std.math.clamp(t.priority, 1, 4) - 1;
+        switch (t.status) {
+            .backlog => s.backlog[pi] += 1,
+            .doing => s.doing[pi] += 1,
+            .done => {
+                s.done[pi] += 1;
+                continue;
+            },
+        }
+        if (t.deadline) |d| {
+            const diff = d - today;
+            if (diff < 0) s.overdue += 1 else if (diff <= 2) s.due_soon += 1 else if (diff <= 7) s.due_week += 1 else s.due_later += 1;
+        } else s.no_deadline += 1;
+    }
+    return s;
+}
+
 // ---- tests -------------------------------------------------------------------------------------------
 
 const testing = std.testing;
@@ -910,4 +1037,97 @@ test "durations, backlog eta and rhythm" {
     const hist = hourHistogram(&l, 8);
     try testing.expect(hist[10] > 0 and hist[11] > 0);
     try testing.expectEqual(@as(f64, 0), hist[3]);
+}
+
+test "recent weeks keep a fixed width and start before the log" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var entries: std.ArrayList(worklog.Entry) = .empty;
+    try scenario(a, &entries);
+    const l = try Ledger.build(a, tz0, at(D(2026, 10, 14), 15), entries.items, &.{});
+    const ws = try recentWeeks(a, &l, 6, 1800);
+    try testing.expectEqual(@as(usize, 6), ws.len);
+    try testing.expectEqual(D(2026, 10, 12), ws[5].start_day);
+    try testing.expectEqual(D(2026, 9, 7), ws[0].start_day);
+    try testing.expectEqual(@as(i64, 0), ws[0].total); // before the log began
+    try testing.expectApproxEqAbs(@as(f64, 10), ws[1].hours(), 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 5), ws[5].hours(), 1e-9);
+}
+
+test "time and completions by priority" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var entries: std.ArrayList(worklog.Entry) = .empty;
+    try scenario(a, &entries);
+    try entries.append(a, .{ .done = .{ .id = 1, .at = at(D(2026, 10, 13), 9), .took = 600, .priority = 3, .title = "x" } });
+    try entries.append(a, .{ .done = .{ .id = 2, .at = at(D(2026, 10, 14), 9), .took = 600, .priority = 1, .title = "y" } });
+    try entries.append(a, .{ .done = .{ .id = 3, .at = at(D(2026, 10, 14), 10), .took = 600, .priority = 1, .title = "z" } });
+    const l = try Ledger.build(a, tz0, at(D(2026, 10, 14), 15), entries.items, &.{});
+    const t = timeByPriority(&l, std.math.minInt(i64), std.math.maxInt(i64));
+    try testing.expectEqual(@as(i64, 4 * 3600), t[0]); // mon 3h + tue 1h
+    try testing.expectEqual(@as(i64, 36 * 3600), t[1]); // 18 two-hour sessions
+    try testing.expectEqual(@as(i64, 3600), t[2]);
+    try testing.expectEqual(@as(i64, 0), t[3]);
+    // only this week
+    const wk = timeByPriority(&l, l.tz.dayStart(D(2026, 10, 12)), l.tz.dayStart(D(2026, 10, 19)));
+    try testing.expectEqual(@as(i64, 4 * 3600), wk[0]);
+    try testing.expectEqual(@as(i64, 0), wk[1]);
+    const d = doneByPriority(&l, std.math.minInt(i64), std.math.maxInt(i64));
+    try testing.expectEqual([4]u32{ 2, 0, 1, 0 }, d);
+}
+
+test "duration histogram buckets" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const d = D(2026, 10, 13);
+    var entries: std.ArrayList(worklog.Entry) = .empty;
+    const tooks = [_]i64{ 600, 899, 900, 2000, 3600, 7199, 20000, 0 };
+    for (tooks, 0..) |t, i| try entries.append(a, .{ .done = .{ .id = @intCast(i + 1), .at = at(d, 9), .took = t, .priority = 2, .title = "t" } });
+    const l = try Ledger.build(a, tz0, at(d, 15), entries.items, &.{});
+    const h = durationHistogram(&l);
+    try testing.expectEqual([dur_buckets]u32{ 2, 1, 1, 2, 0, 1 }, h); // the 0s task is skipped
+}
+
+test "cumulative completions include everything before the first week" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var entries: std.ArrayList(worklog.Entry) = .empty;
+    try entries.append(a, .{ .done = .{ .id = 1, .at = at(D(2026, 9, 1), 9), .took = 60, .priority = 1, .title = "old" } });
+    try entries.append(a, .{ .done = .{ .id = 2, .at = at(D(2026, 10, 6), 9), .took = 60, .priority = 1, .title = "a" } });
+    try entries.append(a, .{ .done = .{ .id = 3, .at = at(D(2026, 10, 13), 9), .took = 60, .priority = 1, .title = "b" } });
+    try entries.append(a, .{ .done = .{ .id = 4, .at = at(D(2026, 10, 14), 9), .took = 60, .priority = 1, .title = "c" } });
+    const l = try Ledger.build(a, tz0, at(D(2026, 10, 14), 15), entries.items, &.{});
+    const ws = try recentWeeks(a, &l, 2, 1800); // Oct 5 and Oct 12
+    const cum = try cumulativeDone(a, &l, ws);
+    try testing.expectEqual(@as(f64, 2), cum[0]); // old + a
+    try testing.expectEqual(@as(f64, 4), cum[1]);
+}
+
+test "board snapshot splits tasks and deadlines" {
+    const a = testing.allocator;
+    var board = model.Board.init(a);
+    defer board.deinit();
+    const today = D(2026, 10, 14);
+    _ = try board.add("late", .backlog, 1, today - 2, 0);
+    _ = try board.add("today", .backlog, 2, today, 0);
+    _ = try board.add("in 5 days", .doing, 2, today + 5, 0);
+    _ = try board.add("far", .backlog, 4, today + 30, 0);
+    _ = try board.add("none", .backlog, 3, null, 0);
+    _ = try board.add("finished late", .done, 1, today - 9, 0); // done tasks never count as overdue
+    const s = boardSnap(&board, today);
+    try testing.expectEqual([4]u32{ 1, 1, 1, 1 }, s.backlog);
+    try testing.expectEqual([4]u32{ 0, 1, 0, 0 }, s.doing);
+    try testing.expectEqual([4]u32{ 1, 0, 0, 0 }, s.done);
+    try testing.expectEqual(@as(u32, 1), s.overdue);
+    try testing.expectEqual(@as(u32, 1), s.due_soon);
+    try testing.expectEqual(@as(u32, 1), s.due_week);
+    try testing.expectEqual(@as(u32, 1), s.due_later);
+    try testing.expectEqual(@as(u32, 1), s.no_deadline);
+    try testing.expectEqual(@as(u32, 5), s.nOpen());
+    try testing.expectApproxEqAbs(@as(f64, 1.0 / 6.0), s.completion().?, 1e-9);
+    try testing.expect((BoardSnap{}).completion() == null);
 }

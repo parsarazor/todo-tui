@@ -13,6 +13,7 @@ for the four priority squares.
 - kanban columns crossed with a four-square priority matrix — every task sits in a priority × column cell
 - keyboard-first: vim keys, `⇧+arrows` / `H J K L` to move cards; mouse drag-and-drop, wheel scroll, double-click edit
 - deadlines that parse like a human types them: `2026-10-05`, `10-05`, `+3`, `+2w`, `today`, `tomorrow`
+- management dashboard (`s`): KPI cards plus column, line, donut, stacked-bar, horizontal-bar, scatter and calendar-heatmap charts — see below
 - work log + statistics: tracked sessions, completions, weekly comparison, streaks, forecasts, backlog velocity
 - brainstorm popup: titled free-text pages for ideas
 - plaintext everywhere: one greppable TSV for the board, atomic save after every change
@@ -84,6 +85,22 @@ to the launcher; to uninstall, delete `kanban.cmd` and the
 Deadline field accepts `2026-10-05`, `10-05` (next occurrence), `+3` (days), `+2w`,
 `today`, `tomorrow`, or empty for none.
 
+## Dashboard
+
+Press `s` to open it. Five tabs (`1`–`5`, or `tab` / `shift+tab`):
+
+| tab | what is on it |
+|-----|---------------|
+| Dashboard | six KPI cards (focus hours vs goal, tasks done, streak, goal odds, backlog ETA, deadlines) · hours per day (columns, last week as ticks) · weekly trend with forecast band (braille line) · time by priority (donut) · board status (stacked bar) · when you work (hour histogram) · weekday rhythm (bars) |
+| Trends | activity calendar heatmap · weekly hours · tasks done per week · running total · task-duration scatter · duration histogram |
+| Board | priority matrix counts · board status · deadlines · work in progress vs its usual pace (gauges) · typical duration per priority · finished work by priority |
+| Week | day-by-day view with comparison against last week |
+| Insights | the full numbers behind every forecast |
+
+`g/G` goal · `w/W` history window · `m/M` active-day threshold · `a/A` smoothing work on every tab except Week.
+Charts are drawn with block and braille characters, so nothing extra is needed. The layout adapts to the terminal
+size (cards go 6 → 3 → 2 → 1 per row, panels drop from the bottom/right); a 120×38 terminal shows everything.
+
 ## Layout of the code
 
 ```
@@ -105,7 +122,10 @@ src/brain_view.zig  draws the brainstorm popup
 src/notes.zig       brainstorm topic data + on-disk format (pure)
 src/editor.zig      UTF-8 multi-line text editor core (pure)
 src/logbook.zig     Log popup state and keys
-src/log_view.zig    draws the Log popup (week view + insights)
+src/log_view.zig    draws the popup frame, the Week and Insights tabs
+src/dashboard.zig   KPI cards + chart panels for the Dashboard / Trends / Board tabs
+src/charts.zig      column, hbar, stacked, gauge, sparkline, braille line / scatter / donut, heatmap
+src/viewkit.zig     shared rich-text lines and number formatting for the log views
 ```
 
 ### Why I made a TUI kanban in Zig

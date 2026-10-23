@@ -309,7 +309,7 @@ fn header(app: *App, win: vaxis.Window, fa: std.mem.Allocator) void {
 const hints = [_][2][]const u8{
     .{ "n", "new" },
     .{ "b", "brainstorm" },
-    .{ "s", "log" },
+    .{ "s", "dashboard" },
     .{ "e", "edit" },
     .{ "x", "delete" },
     .{ "⇧←↑↓→", "move task" },
@@ -367,7 +367,7 @@ const help_lines = [_][2][]const u8{
     .{ "drag with the mouse", "drop on any square or column" },
     .{ "n", "new task in the focused square / column" },
     .{ "b", "brainstorm: a blank page per topic" },
-    .{ "s", "log: hours per day, streaks, forecasts" },
+    .{ "s", "dashboard: KPIs, charts, forecasts" },
     .{ "e  Enter  double-click", "edit title, deadline, priority" },
     .{ "1 2 3 4", "set priority (moves it to that square)" },
     .{ "space", "advance: backlog → in progress → done" },
