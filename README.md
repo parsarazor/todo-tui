@@ -6,6 +6,10 @@ for the four priority squares.
 
 
 ![Kanban board screenshot](assets/todoapp.png)
+![Kanban board screenshot](assets/dashboard3.png)
+![Kanban board screenshot](assets/dashboard1.png)
+
+
 
 
 ## Features
