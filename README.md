@@ -135,3 +135,5 @@ src/viewkit.zig     shared rich-text lines and number formatting for the log vie
 ### Why I made a TUI kanban in Zig
 
 I made this Kanban for Zig because I found it to be more efficient compared to Go. Zig's performance and control over memory management made it a better fit for this project. The ability to write low-level code with high-level abstractions was particularly appealing, allowing me to create a tool that is both powerful and easy to use.
+
+The big update was adding practice mode in which you can add how much questions you want to practice and it tracks down 
