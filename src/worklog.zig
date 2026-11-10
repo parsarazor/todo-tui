@@ -65,6 +65,19 @@ pub fn serialize(a: std.mem.Allocator, log: *const Log) ![]u8 {
     return out.toOwnedSlice(a);
 }
 
+/// Timestamps outside 1970-01-01 .. 9999-12-31 (UTC) are clamped into it on load, so
+/// a corrupted or hostile log can't overflow day arithmetic further down.
+pub const min_time: i64 = 0;
+pub const max_time: i64 = 253402300799;
+
+pub fn clampTime(t: i64) i64 {
+    return std.math.clamp(t, min_time, max_time);
+}
+
+fn parseTime(text: ?[]const u8) ?i64 {
+    return clampTime(std.fmt.parseInt(i64, text orelse return null, 10) catch return null);
+}
+
 pub fn parse(log: *Log, data: []const u8) !void {
     var lines = std.mem.splitScalar(u8, data, '\n');
     const header = lines.next() orelse return;
@@ -78,22 +91,22 @@ pub fn parse(log: *Log, data: []const u8) !void {
         const id = std.fmt.parseInt(u32, f.next() orelse continue, 10) catch continue;
         switch (kind[0]) {
             'S' => {
-                const start = std.fmt.parseInt(i64, f.next() orelse continue, 10) catch continue;
-                const end = std.fmt.parseInt(i64, f.next() orelse continue, 10) catch continue;
+                const start = parseTime(f.next()) orelse continue;
+                const end = parseTime(f.next()) orelse continue;
                 const prio = std.fmt.parseInt(u8, f.next() orelse continue, 10) catch continue;
                 if (end <= start) continue;
                 const title = try log.alloc.dupe(u8, f.rest());
                 try log.adopt(.{ .session = .{ .id = id, .start = start, .end = end, .priority = std.math.clamp(prio, 1, 4), .title = title } });
             },
             'D' => {
-                const at = std.fmt.parseInt(i64, f.next() orelse continue, 10) catch continue;
-                const took = std.fmt.parseInt(i64, f.next() orelse continue, 10) catch continue;
+                const at = parseTime(f.next()) orelse continue;
+                const took = parseTime(f.next()) orelse continue;
                 const prio = std.fmt.parseInt(u8, f.next() orelse continue, 10) catch continue;
                 const title = try log.alloc.dupe(u8, f.rest());
-                try log.adopt(.{ .done = .{ .id = id, .at = at, .took = @max(took, 0), .priority = std.math.clamp(prio, 1, 4), .title = title } });
+                try log.adopt(.{ .done = .{ .id = id, .at = at, .took = took, .priority = std.math.clamp(prio, 1, 4), .title = title } });
             },
             'U' => {
-                const at = std.fmt.parseInt(i64, f.next() orelse continue, 10) catch continue;
+                const at = parseTime(f.next()) orelse continue;
                 try log.adopt(.{ .undone = .{ .id = id, .at = at } });
             },
             else => {},
@@ -134,4 +147,16 @@ test "round trip" {
     try std.testing.expectEqualStrings("write thesis", back.entries.items[1].done.title);
     try std.testing.expectEqual(@as(i64, 300), back.entries.items[1].done.took);
     try std.testing.expectEqual(@as(i64, 500), back.entries.items[2].undone.at);
+}
+
+test "out-of-range timestamps are clamped" {
+    const a = std.testing.allocator;
+    var log = Log.init(a);
+    defer log.deinit();
+    try parse(&log, magic ++ "\nS\t1\t0\t9223372036854775807\t1\tx\nS\t2\t-180000000000000\t5\t1\ty\nD\t3\t-9223372036854775808\t-7\t1\tz\n");
+    try std.testing.expectEqual(@as(usize, 3), log.entries.items.len);
+    try std.testing.expectEqual(max_time, log.entries.items[0].session.end);
+    try std.testing.expectEqual(min_time, log.entries.items[1].session.start);
+    try std.testing.expectEqual(min_time, log.entries.items[2].done.at);
+    try std.testing.expectEqual(@as(i64, 0), log.entries.items[2].done.took);
 }

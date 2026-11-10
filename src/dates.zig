@@ -201,8 +201,10 @@ pub const Tz = struct {
     }
 
     /// Local calendar day (days since 1970-01-01) containing the Unix time `t`.
+    /// Saturates at the i32 range instead of overflowing for absurd `t`.
     pub fn dayOf(self: Tz, t: i64) i32 {
-        return @intCast(@divFloor(t + self.offset(t), 86400));
+        const day = @divFloor(t +| self.offset(t), 86400);
+        return @intCast(std.math.clamp(day, std.math.minInt(i32), std.math.maxInt(i32)));
     }
 
     /// Unix time of local midnight at the start of `day`.
@@ -213,7 +215,7 @@ pub const Tz = struct {
 
     /// Hour of the local day (0-23) for `t`.
     pub fn hourOf(self: Tz, t: i64) u8 {
-        return @intCast(@mod(@divFloor(t + self.offset(t), 3600), 24));
+        return @intCast(@mod(@divFloor(t +| self.offset(t), 3600), 24));
     }
 };
 
@@ -281,6 +283,8 @@ test "weeks start on Monday" {
     try std.testing.expectEqual(wed, tz.dayOf(tz.dayStart(wed) + 5));
     try std.testing.expectEqual(wed - 1, tz.dayOf(tz.dayStart(wed) - 1));
     try std.testing.expectEqual(@as(u8, 0), tz.hourOf(tz.dayStart(wed)));
+    try std.testing.expectEqual(@as(i32, std.math.maxInt(i32)), tz.dayOf(std.math.maxInt(i64)));
+    try std.testing.expectEqual(@as(i32, std.math.minInt(i32)), tz.dayOf(std.math.minInt(i64)));
 }
 
 test "durations" {

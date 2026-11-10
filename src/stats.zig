@@ -75,9 +75,14 @@ pub const Ledger = struct {
         var live = std.AutoHashMap(u32, usize).init(a); // task id -> index of its current completion
 
         for (entries) |e| switch (e) {
-            .session => |s| try sessions.append(a, s),
+            .session => |s| {
+                var c = s;
+                c.start = worklog.clampTime(s.start);
+                c.end = worklog.clampTime(s.end);
+                if (c.end > c.start) try sessions.append(a, c);
+            },
             .done => |d| {
-                try comps.append(a, .{ .id = d.id, .at = d.at, .took = d.took, .priority = d.priority, .title = d.title });
+                try comps.append(a, .{ .id = d.id, .at = worklog.clampTime(d.at), .took = d.took, .priority = d.priority, .title = d.title });
                 try live.put(d.id, comps.items.len - 1);
             },
             .undone => |u| {
@@ -86,7 +91,8 @@ pub const Ledger = struct {
         };
         for (running) |s| {
             var r = s;
-            r.end = @min(r.end, now);
+            r.start = worklog.clampTime(r.start);
+            r.end = worklog.clampTime(@min(r.end, now));
             if (r.end > r.start) try sessions.append(a, r);
         }
         // drop tombstones
@@ -109,7 +115,7 @@ pub const Ledger = struct {
             first = @min(first, tz.dayOf(c.at));
             last = @max(last, tz.dayOf(c.at));
         }
-        if (last - first >= max_days) first = last - (max_days - 1);
+        if (@as(i64, last) - first >= max_days) first = last - (max_days - 1);
 
         const n: usize = @intCast(last - first + 1);
         const secs = try a.alloc(i64, n);
@@ -118,10 +124,9 @@ pub const Ledger = struct {
         @memset(done, 0);
 
         for (sessions.items) |s| {
-            var d = tz.dayOf(s.start);
-            const end_day = tz.dayOf(s.end - 1);
+            var d = @max(tz.dayOf(s.start), first);
+            const end_day = @min(tz.dayOf(s.end - 1), last);
             while (d <= end_day) : (d += 1) {
-                if (d < first) continue;
                 const lo = @max(s.start, tz.dayStart(d));
                 const hi = @min(s.end, tz.dayStart(d + 1));
                 if (hi > lo) secs[@intCast(d - first)] += hi - lo;
@@ -874,6 +879,21 @@ test "sessions are split at midnight and running ones count" {
     const east = try Ledger.build(a, .{ .fixed = 3 * 3600 }, at(d + 1, 9), entries.items, &.{});
     try testing.expectEqual(@as(i64, 4 * 3600), east.secsOn(d + 1));
     try testing.expectEqual(@as(i64, 0), east.secsOn(d));
+}
+
+test "hostile timestamps neither crash nor stall the build" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const d = D(2026, 10, 13);
+    var log = worklog.Log.init(a);
+    try worklog.parse(&log, "WORKLOG1\nS\t1\t0\t9223372036854775807\t1\tx\nS\t2\t-180000000000000\t5\t1\ty\n");
+    try log.adopt(.{ .session = .{ .id = 3, .start = std.math.minInt(i64), .end = std.math.maxInt(i64), .priority = 1, .title = "raw" } });
+    try log.adopt(.{ .session = .{ .id = 4, .start = -180000000000000, .end = at(d, 10), .priority = 1, .title = "raw" } });
+    try log.adopt(.{ .done = .{ .id = 5, .at = std.math.minInt(i64) + 1, .took = 0, .priority = 1, .title = "raw" } });
+    const running = [_]Session{.{ .id = 6, .start = std.math.minInt(i64), .end = std.math.maxInt(i64), .priority = 1, .title = "raw" }};
+    const l = try Ledger.build(a, .{ .fixed = 14 * 3600 }, at(d, 15), log.entries.items, &running);
+    try testing.expect(l.secs.len <= max_days);
 }
 
 test "undone cancels a completion" {
